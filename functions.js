@@ -53,6 +53,21 @@ async function loginWithKeychain(id, username) {
     });
 }
 
+async function performOperationsViaPrivatekey(operations, key) {
+    try {
+        let operationList = JSON.parse(decodeURIComponent(escape(atob(operations))));
+        const pkey = dblurt.PrivateKey.fromString(key);
+        const result = client.broadcast.sendOperations(operationList, pkey);
+        return replyToNative({
+            valid: true,
+            data: true,
+            error: null,
+        });
+    } catch (error) {
+        return createErrorResponse(error);
+    }
+}
+
 async function performOperationsViaKeyChainWeb(
     operations,
     username,
@@ -80,6 +95,39 @@ async function performOperationsViaKeyChainWeb(
         } catch (error) {
             return resolve(createErrorResponse(error));
         }
+    });
+}
+
+async function validateKey(id, accountName, postingKey) {
+    return new Promise(function (resolve, reject) {
+        blurt.api.getAccounts([accountName], function (err, accounts) {
+            if (err) {
+                return resolve(createErrorResponse(err));
+            } else {
+                if (
+                    !(
+                        accounts.length > 0 &&
+                        accounts[0]["posting"] !== undefined &&
+                        accounts[0]["posting"]["key_auths"] !== undefined &&
+                        accounts[0]["posting"]["key_auths"].length > 0 &&
+                        accounts[0]["posting"]["key_auths"][0].length > 0
+                    )
+                ) {
+                    return resolve(createErrorResponse(null, "username not found or invalid response from server"));
+                }
+                const pubWif = accounts[0].posting.key_auths[0][0];
+                try {
+                    const isValid = blurt.auth.wifIsValid(postingKey, pubWif);
+                    return resolve(replyToNative({
+                        valid: true,
+                        data: isValid,
+                        error: null,
+                    }));
+                } catch (err) {
+                    return resolve(createErrorResponse(err));
+                }
+            }
+        });
     });
 }
 
@@ -119,11 +167,7 @@ async function pickImageAndUpload(accountName) {
                             })
                             .catch((error) => {
                                 console.log(error.message);
-                                return resolve(replyToNative({
-                                    valid: false,
-                                    data: null,
-                                    error: error.message,
-                                }));
+                                return resolve(createErrorResponse(error));
                             });
                     }
                 );
@@ -141,11 +185,11 @@ async function pickImageAndUpload(accountName) {
     });
 }
 
-function createErrorResponse(response) {
+function createErrorResponse(response, error) {
     return replyToNative({
         valid: false,
         data: null,
-        error: response.message || "Unknown error occurred."
+        error: error ?? (response.message || "Unknown error occurred.")
     });
 }
 
